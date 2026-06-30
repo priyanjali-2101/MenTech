@@ -1,0 +1,821 @@
+
+                                             MAIN
+MAIN.PY
+from fastapi import FastAPI
+from database.db import Base, engine
+from model import risk_table, user_table, comment_table, activity_table
+from routers import risk_endpoints, user_endpoints, comment_endpoints
+
+app = FastAPI(
+    title="Risk Management System",
+    description="Complete Backend API for managing risks",
+    version="1.0.0"
+)
+# Base.metadata.drop_all(bind=engine)
+Base.metadata.create_all(bind=engine)
+
+app.include_router(user_endpoints.router)
+app.include_router(risk_endpoints.router)
+app.include_router(comment_endpoints.router)
+
+
+@app.get("/")
+def home():
+    return {"message": "Risk Management System is Running! "}
+
+
+----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+                                      DATABASE
+
+DATABASE.PY
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+DATABASE_URL = "sqlite:///./risk.db"
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}  
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+-------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------
+
+                                       AUTH
+AUTH_BEARER.PY
+
+from fastapi import Request, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import jwt
+
+# Same SECRET_KEY — bilkul same
+SECRET_KEY = "mysecretkey123"
+ALGORITHM = "HS256"
+
+
+def decode_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired, please login again"
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
+
+
+class JWTBearer(HTTPBearer):
+    async def __call__(self, request: Request):
+        credentials: HTTPAuthorizationCredentials = await super().__call__(request)
+        if credentials:
+            payload = decode_token(credentials.credentials)
+            return payload
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token not found"
+        )
+
+--------------------------------------------------------------------------------------------------------
+
+AUTH_HANDLER.PY
+
+import jwt
+import bcrypt
+from datetime import datetime, timedelta
+
+# Directly hardcode karo - no .env
+SECRET_KEY = "mysecretkey123"
+ALGORITHM = "HS256"
+TOKEN_EXPIRE_HOURS = 24
+
+
+# Password hash karo
+def hash_password(password: str) -> str:
+    pwd_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode('utf-8')
+
+
+# Password verify karo
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    pwd_bytes = plain_password.encode('utf-8')
+    hash_bytes = hashed_password.encode('utf-8')
+    return bcrypt.checkpw(pwd_bytes, hash_bytes)
+
+
+# JWT Token banao
+def create_token(user_id: int, email: str, role: str) -> str:
+    payload = {
+        "user_id" : user_id,
+        "email"   : email,
+        "role"    : role,
+        "exp"     : datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+---------------------------------------------------------------------------------------------
+
+ROLE_CHECKER.PY
+
+from fastapi import HTTPException, status
+
+
+def check_role(current_user: dict, allowed_roles: list):
+    user_role = current_user.get("role")
+    if user_role not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied! Only users with {allowed_roles} role(s) can perform this action"
+        )
+    return True
+
+---------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
+
+                                       MODEL
+ACTIVITY_TABLE.PY
+
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from database.db import Base
+
+
+class Activity(Base):
+    __tablename__ = "activities"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    action      = Column(String(255), nullable=False)   
+    risk_id     = Column(Integer, ForeignKey("risks.id"), nullable=False)
+    done_by     = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at  = Column(DateTime, default=func.now())
+
+    # Relationships
+    risk = relationship("Risk", back_populates="activities")
+    user = relationship("User")
+--------------------------------------------------------------------------------------------------
+
+COMMENT_TABLE.PY
+
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from database.db import Base
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    content    = Column(Text, nullable=False)
+    risk_id    = Column(Integer, ForeignKey("risks.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+    # Relationships
+    risk = relationship("Risk", back_populates="comments")
+    user = relationship("User")
+
+---------------------------------------------------------------------------------------------------
+
+RISK_TABLE.PY
+
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from database.db import Base
+
+
+class Risk(Base):
+    __tablename__ = "risks"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    title       = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    priority    = Column(String(50), default="Low")
+    status      = Column(String(50), default="Open")
+    category    = Column(String(100), nullable=True)
+    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    due_date    = Column(String(50), nullable=True)
+    mitigation  = Column(Text, nullable=True)        # ← Ye add karo
+    created_at  = Column(DateTime, default=func.now())
+    updated_at  = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relationships
+    creator  = relationship("User", foreign_keys=[created_by], back_populates="risks_created")
+    assignee = relationship("User", foreign_keys=[assigned_to], back_populates="risks_assigned")
+
+    comments   = relationship("Comment", back_populates="risk")
+    activities = relationship("Activity", back_populates="risk")
+
+
+------------------------------------------------------------------------------------------------------
+USER.PY
+
+from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from database.db import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String(100), nullable=False)
+    email      = Column(String(150), unique=True, nullable=False)  
+    password   = Column(String(255), nullable=False)               
+    role       = Column(String(50), default="Employee")            
+    is_active  = Column(String(10), default="true")
+    created_at = Column(DateTime, default=func.now())
+
+    risks_created  = relationship("Risk", foreign_keys="Risk.created_by", back_populates="creator")
+    risks_assigned = relationship("Risk", foreign_keys="Risk.assigned_to", back_populates="assignee")
+
+-----------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------
+
+                           ROUTERS
+
+COMMENT_ENDPOINTS.PY
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+from database.db import get_db
+from schemas.comment_schema import CommentCreate, CommentResponse
+from services import comment_logic
+from auth.auth_bearer import JWTBearer
+
+router = APIRouter(prefix="/comments", tags=["Comments"])
+
+
+@router.post("/", response_model=CommentResponse)
+def add_comment(
+    comment: CommentCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    return comment_logic.add_comment(db, comment, current_user)
+
+
+@router.get("/{risk_id}", response_model=List[CommentResponse])
+def get_comments(
+    risk_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    return comment_logic.get_comments_by_risk(db, risk_id)
+
+----------------------------------------------------------------------------------------------------------------------
+
+RISKENDPOINT.PY
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from database.db import get_db
+from schemas.risk_validation import RiskCreate, RiskUpdate, RiskResponse
+from services import risk_logic
+from auth.auth_bearer import JWTBearer
+from auth.role_checker import check_role
+
+router = APIRouter(prefix="/risks", tags=["Risks"])
+
+
+@router.post("/", response_model=RiskResponse, status_code=status.HTTP_201_CREATED)
+def create_risk(
+    risk: RiskCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    return risk_logic.create_risk(db, risk, current_user)
+
+
+@router.get("/", response_model=List[RiskResponse])
+def get_all_risks(
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    search: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    return risk_logic.get_all_risks(db, status, priority, search, skip, limit)
+
+
+@router.get("/dashboard")
+def get_dashboard(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    return risk_logic.get_dashboard(db)
+
+
+@router.get("/{risk_id}", response_model=RiskResponse)
+def get_risk(
+    risk_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    risk = risk_logic.get_risk_by_id(db, risk_id)
+    if not risk:
+        raise HTTPException(status_code=404, detail="Risk not found")
+    return risk
+
+
+@router.put("/{risk_id}", response_model=RiskResponse)
+def update_risk(
+    risk_id: int,
+    risk: RiskUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    updated = risk_logic.update_risk(db, risk_id, risk, current_user)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Risk not found")
+    return updated
+
+
+@router.delete("/{risk_id}")
+def delete_risk(
+    risk_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    check_role(current_user, ["Admin"])
+    result = risk_logic.delete_risk(db, risk_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Risk not found")
+    return result
+
+
+------------------------------------------------------------------------------------------------------------
+
+USER_ENDPOINT.PY
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from database.db import get_db
+from schemas.user_validation import UserCreate, UserUpdate, UserResponse, UserLogin, TokenResponse
+from services import user_logic
+from auth.auth_bearer import JWTBearer
+from typing import List
+
+router = APIRouter(prefix="/users", tags=["Users"])
+
+
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register(user: UserCreate, db: Session = Depends(get_db)):
+    result = user_logic.create_user(db, user)
+    if not result:
+        raise HTTPException(status_code=400, detail="Email is already registered")
+    return result
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(user: UserLogin, db: Session = Depends(get_db)):
+    result = user_logic.login_user(db, user.email, user.password)
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return result
+
+
+@router.get("/", response_model=List[UserResponse])
+def get_all_users(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    return user_logic.get_all_users(db)
+
+
+@router.get("/{user_id}", response_model=UserResponse)
+def get_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    user = user_logic.get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@router.put("/{user_id}", response_model=UserResponse)
+def update_user(
+    user_id: int,
+    user: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    updated = user_logic.update_user(db, user_id, user)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated
+
+
+@router.delete("/{user_id}")
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(JWTBearer())
+):
+    result = user_logic.delete_user(db, user_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="User not found")
+    return result
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+                                       SCHEMAS
+COMMENT_SCHEMA.PY
+
+from pydantic import BaseModel
+from typing import Optional
+
+
+class CommentCreate(BaseModel):
+    content: str
+    risk_id: int
+
+
+class CommentResponse(BaseModel):
+    id: int
+    content: str
+    risk_id: int
+    user_id: int
+
+    class Config:
+        from_attributes = True
+
+------------------------------------------------------------------------------------------------------------------------
+RISK_VALIDATION.PY
+
+from pydantic import BaseModel
+from typing import Optional
+
+
+class RiskCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    priority: Optional[str] = "Low"        
+    status: Optional[str] = "Open"         
+    category: Optional[str] = None
+    assigned_to: Optional[int] = None      
+    due_date: Optional[str] = None
+    mitigation: Optional[str] = None
+
+
+class RiskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+    category: Optional[str] = None
+    assigned_to: Optional[int] = None
+    due_date: Optional[str] = None
+    mitigation: Optional[str] = None
+
+
+class RiskResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+    category: Optional[str] = None
+    assigned_to: Optional[int] = None
+    created_by: Optional[int] = None
+    due_date: Optional[str] = None
+    mitigation: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+----------------------------------------------------------------------------------------------------------------
+USER_VALIDATION.PY
+
+from pydantic import BaseModel
+from typing import Optional
+
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: Optional[str] = "Employee"
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[str] = None
+
+
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    role: str
+    is_active: str
+
+    class Config:
+        from_attributes = True
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: int
+    name: str
+    role: str
+-----------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------
+
+                                               SERVICES
+
+COMMENT_LOGIC.PY
+
+from pydantic import BaseModel
+from typing import Optional
+
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: Optional[str] = "Employee"
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[str] = None
+
+
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    role: str
+    is_active: str
+
+    class Config:
+        from_attributes = True
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: int
+    name: str
+    role: str
+
+------------------------------------------------------------------------------------------------------------------
+
+DASHBOARD_LOGIC.PY
+
+from sqlalchemy.orm import Session
+from model.risk_table import Risk
+
+
+def get_dashboard_summary(db: Session):
+    return {
+        "total_risks"    : db.query(Risk).count(),
+        "open_risks"     : db.query(Risk).filter(Risk.status == "Open").count(),
+        "in_progress"    : db.query(Risk).filter(Risk.status == "In Progress").count(),
+        "resolved_risks" : db.query(Risk).filter(Risk.status == "Resolved").count(),
+        "closed_risks"   : db.query(Risk).filter(Risk.status == "Closed").count(),
+        "critical_risks" : db.query(Risk).filter(Risk.priority == "Critical").count(),
+        "high_risks"     : db.query(Risk).filter(Risk.priority == "High").count(),
+        "medium_risks"   : db.query(Risk).filter(Risk.priority == "Medium").count(),
+        "low_risks"      : db.query(Risk).filter(Risk.priority == "Low").count(),
+    }
+-------------------------------------------------------------------------------------------------------------------
+
+RISK_LOGIC.PY
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from model.risk_table import Risk
+from model.activity_table import Activity
+from schemas.risk_validation import RiskCreate, RiskUpdate
+
+
+def create_risk(db: Session, risk_data: RiskCreate, current_user: dict):
+    new_risk = Risk(
+        title       = risk_data.title,
+        description = risk_data.description,
+        priority    = risk_data.priority,
+        status      = risk_data.status,
+        category    = risk_data.category,
+        assigned_to = risk_data.assigned_to,
+        created_by  = current_user["user_id"],
+        due_date    = risk_data.due_date,
+        mitigation  = risk_data.mitigation
+    )
+    db.add(new_risk)
+    db.commit()
+    db.refresh(new_risk)
+
+    # Activity log
+    log = Activity(
+        action  = f"Risk '{new_risk.title}' was created",
+        risk_id = new_risk.id,
+        done_by = current_user["user_id"]
+    )
+    db.add(log)
+    db.commit()
+
+    return new_risk
+
+
+def get_all_risks(db: Session, status: str = None, priority: str = None,
+                  search: str = None, skip: int = 0, limit: int = 10):
+    query = db.query(Risk)
+
+    # Filters
+    if status:
+        query = query.filter(Risk.status == status)
+    if priority:
+        query = query.filter(Risk.priority == priority)
+    if search:
+        query = query.filter(Risk.title.contains(search))
+
+    # Pagination
+    return query.offset(skip).limit(limit).all()
+
+
+def get_risk_by_id(db: Session, risk_id: int):
+    return db.query(Risk).filter(Risk.id == risk_id).first()
+
+
+def update_risk(db: Session, risk_id: int, risk_data: RiskUpdate, current_user: dict):
+    risk = db.query(Risk).filter(Risk.id == risk_id).first()
+    if not risk:
+        return None
+
+    if risk_data.title is not None:
+        risk.title = risk_data.title
+    if risk_data.description is not None:
+        risk.description = risk_data.description
+    if risk_data.priority is not None:
+        risk.priority = risk_data.priority
+    if risk_data.status is not None:
+        risk.status = risk_data.status
+    if risk_data.category is not None:
+        risk.category = risk_data.category
+    if risk_data.assigned_to is not None:
+        risk.assigned_to = risk_data.assigned_to
+    if risk_data.due_date is not None:
+        risk.due_date = risk_data.due_date
+    if risk_data.mitigation is not None:
+        risk.mitigation = risk_data.mitigation
+
+    db.commit()
+    db.refresh(risk)
+
+    # Activity log
+    log = Activity(
+        action  = f"Risk '{risk.title}' was updated",
+        risk_id = risk.id,
+        done_by = current_user["user_id"]
+    )
+    db.add(log)
+    db.commit()
+
+    return risk
+
+
+def delete_risk(db: Session, risk_id: int):
+    risk = db.query(Risk).filter(Risk.id == risk_id).first()
+    if not risk:
+        return None
+    db.delete(risk)
+    db.commit()
+    return {"message": f"Risk {risk_id} deleted successfully"}
+
+
+def get_dashboard(db: Session):
+    total    = db.query(Risk).count()
+    open     = db.query(Risk).filter(Risk.status == "Open").count()
+    progress = db.query(Risk).filter(Risk.status == "In Progress").count()
+    resolved = db.query(Risk).filter(Risk.status == "Resolved").count()
+    closed   = db.query(Risk).filter(Risk.status == "Closed").count()
+    critical = db.query(Risk).filter(Risk.priority == "Critical").count()
+
+    return {
+        "total_risks"    : total,
+        "open_risks"     : open,
+        "in_progress"    : progress,
+        "resolved_risks" : resolved,
+        "closed_risks"   : closed,
+        "critical_risks" : critical
+    }
+
+------------------------------------------------------------------------------------------------------------------
+
+USER_LOGIC.PY
+
+from sqlalchemy.orm import Session
+from model.user_table import User
+from schemas.user_validation import UserCreate, UserUpdate
+from auth.auth_handler import hash_password, verify_password, create_token
+
+
+def create_user(db: Session, user_data: UserCreate):
+    existing = db.query(User).filter(User.email == user_data.email).first()
+    if existing:
+        return None
+
+    new_user = User(
+        name     = user_data.name,
+        email    = user_data.email,
+        password = hash_password(user_data.password),
+        role     = user_data.role
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+
+def login_user(db: Session, email: str, password: str):
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return None
+    if not verify_password(password, user.password):
+        return None
+
+    token = create_token(user.id, user.email, user.role)
+    return {
+        "access_token" : token,
+        "token_type"   : "bearer",
+        "user_id"      : user.id,
+        "name"         : user.name,
+        "role"         : user.role
+    }
+
+
+def get_all_users(db: Session):
+    return db.query(User).all()
+
+
+def get_user_by_id(db: Session, user_id: int):
+    return db.query(User).filter(User.id == user_id).first()
+
+
+def update_user(db: Session, user_id: int, user_data: UserUpdate):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return None
+
+    if user_data.name is not None:
+        user.name = user_data.name
+    if user_data.email is not None:
+        user.email = user_data.email
+    if user_data.role is not None:
+        user.role = user_data.role
+    if user_data.is_active is not None:
+        user.is_active = user_data.is_active
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def delete_user(db: Session, user_id: int):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return None
+    db.delete(user)
+    db.commit()
+    return {"message": f"User {user_id} deleted successfully"}
