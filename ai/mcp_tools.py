@@ -82,6 +82,12 @@ def delete_risk(db: Session, risk_id: int) -> dict:
     risk = db.query(Risk).filter(Risk.id == risk_id).first()
     if not risk: return {"error": f"Risk {risk_id} not found"}
     title = risk.title
+
+    # Pehle linked activities aur comments delete karo
+    # (warna FK constraint error aata hai: NOT NULL constraint failed)
+    db.query(Activity).filter(Activity.risk_id == risk_id).delete()
+    db.query(Comment).filter(Comment.risk_id == risk_id).delete()
+
     db.delete(risk)
     db.commit()
     return {"message": f"Risk '{title}' deleted!", "risk_id": risk_id}

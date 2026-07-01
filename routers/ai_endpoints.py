@@ -66,7 +66,7 @@ def get_mitigation(request: MitigationRequest, current_user: dict = Depends(JWTB
 
 @router.post("/chat")
 def chat(request: ChatRequest, db: Session = Depends(get_db), current_user: dict = Depends(JWTBearer())):
-    return {"question": request.question, "answer": chat_with_risks(request.question, db)}
+    return {"question": request.question, "answer": chat_with_risks(request.question, db, current_user["user_id"])}
 
 @router.get("/summary")
 def get_summary(db: Session = Depends(get_db), current_user: dict = Depends(JWTBearer())):
