@@ -207,9 +207,16 @@ def risks_page():
                     col_a, col_b, col_c = st.columns(3)
 
                     with col_a:
+                        # new_status = st.selectbox(
+                        #     "Update Status",
+                        #     ["Open", "Assigned", "In Progress", "Resolved", "Closed"],
+                        #     key=f"status_{risk['id']}"
+                        # )
+                        status_options = ["Open", "Assigned", "In Progress", "Resolved", "Closed"]
                         new_status = st.selectbox(
                             "Update Status",
-                            ["Open", "Assigned", "In Progress", "Resolved", "Closed"],
+                            status_options,
+                            index=status_options.index(risk['status']) if risk['status'] in status_options else 0,
                             key=f"status_{risk['id']}"
                         )
 
