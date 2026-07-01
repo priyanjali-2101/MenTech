@@ -23,7 +23,7 @@ def create_risk(db: Session, risk_data: RiskCreate, current_user: dict):
 
     # Activity log
     log = Activity(
-        action  = f"Risk '{new_risk.title}' create kiya gaya",
+        action  = f"Risk '{new_risk.title}' was created",
         risk_id = new_risk.id,
         done_by = current_user["user_id"]
     )
@@ -80,7 +80,7 @@ def update_risk(db: Session, risk_id: int, risk_data: RiskUpdate, current_user: 
 
     # Activity log
     log = Activity(
-        action  = f"Risk '{risk.title}' update kiya gaya",
+        action  = f"Risk '{risk.title}' was updated",
         risk_id = risk.id,
         done_by = current_user["user_id"]
     )
@@ -90,10 +90,25 @@ def update_risk(db: Session, risk_id: int, risk_data: RiskUpdate, current_user: 
     return risk
 
 
+# def delete_risk(db: Session, risk_id: int):
+#     risk = db.query(Risk).filter(Risk.id == risk_id).first()
+#     if not risk:
+#         return None
+#     db.delete(risk)
+#     db.commit()
+#     return {"message": f"Risk {risk_id} deleted successfully"}
+
 def delete_risk(db: Session, risk_id: int):
+    from model.comment_table import Comment
     risk = db.query(Risk).filter(Risk.id == risk_id).first()
     if not risk:
         return None
+
+    # Pehle linked data delete karo
+    db.query(Activity).filter(Activity.risk_id == risk_id).delete()
+    db.query(Comment).filter(Comment.risk_id == risk_id).delete()
+
+    # Ab risk delete karo
     db.delete(risk)
     db.commit()
     return {"message": f"Risk {risk_id} deleted successfully"}

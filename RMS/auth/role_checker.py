@@ -6,6 +6,6 @@ def check_role(current_user: dict, allowed_roles: list):
     if user_role not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access denied! Sirf {allowed_roles} wale ye kar sakte hain"
+            detail=f"Access denied! Only users with {allowed_roles} role(s) can perform this action"
         )
     return True

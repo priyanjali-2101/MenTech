@@ -13,7 +13,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 def register(user: UserCreate, db: Session = Depends(get_db)):
     result = user_logic.create_user(db, user)
     if not result:
-        raise HTTPException(status_code=400, detail="Email already registered hai")
+        raise HTTPException(status_code=400, detail="Email is already registered")
     return result
 
 
@@ -21,7 +21,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 def login(user: UserLogin, db: Session = Depends(get_db)):
     result = user_logic.login_user(db, user.email, user.password)
     if not result:
-        raise HTTPException(status_code=401, detail="Email ya password galat hai")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     return result
 
 
@@ -41,7 +41,7 @@ def get_user(
 ):
     user = user_logic.get_user_by_id(db, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User nahi mila")
+        raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
@@ -54,7 +54,7 @@ def update_user(
 ):
     updated = user_logic.update_user(db, user_id, user)
     if not updated:
-        raise HTTPException(status_code=404, detail="User nahi mila")
+        raise HTTPException(status_code=404, detail="User not found")
     return updated
 
 
@@ -66,5 +66,5 @@ def delete_user(
 ):
     result = user_logic.delete_user(db, user_id)
     if not result:
-        raise HTTPException(status_code=404, detail="User nahi mila")
+        raise HTTPException(status_code=404, detail="User not found")
     return result

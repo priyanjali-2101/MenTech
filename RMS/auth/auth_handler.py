@@ -1,25 +1,22 @@
 import jwt
+import bcrypt
 from datetime import datetime, timedelta
-from passlib.context import CryptContext
 
-SECRET_KEY = "your-secret-key-keep-it-safe"
+SECRET_KEY = "mysecretkey123"
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-# Password hash karo
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    pwd_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode('utf-8')
 
-
-# Password verify karo
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    pwd_bytes = plain_password.encode('utf-8')
+    hash_bytes = hashed_password.encode('utf-8')
+    return bcrypt.checkpw(pwd_bytes, hash_bytes)
 
 
-# JWT Token banao
 def create_token(user_id: int, email: str, role: str) -> str:
     payload = {
         "user_id" : user_id,

@@ -5,10 +5,10 @@ from typing import Optional
 class RiskCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    priority: Optional[str] = "Low"        # Low, Medium, High, Critical
-    status: Optional[str] = "Open"         # Open, Assigned, In Progress, Resolved, Closed
+    priority: Optional[str] = "Low"        
+    status: Optional[str] = "Open"         
     category: Optional[str] = None
-    assigned_to: Optional[int] = None      # User ID
+    assigned_to: Optional[int] = None      
     due_date: Optional[str] = None
     mitigation: Optional[str] = None
 

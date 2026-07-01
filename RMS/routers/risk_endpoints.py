@@ -48,7 +48,7 @@ def get_risk(
 ):
     risk = risk_logic.get_risk_by_id(db, risk_id)
     if not risk:
-        raise HTTPException(status_code=404, detail="Risk nahi mila")
+        raise HTTPException(status_code=404, detail="Risk not found")
     return risk
 
 
@@ -61,7 +61,7 @@ def update_risk(
 ):
     updated = risk_logic.update_risk(db, risk_id, risk, current_user)
     if not updated:
-        raise HTTPException(status_code=404, detail="Risk nahi mila")
+        raise HTTPException(status_code=404, detail="Risk not found")
     return updated
 
 
@@ -71,9 +71,8 @@ def delete_risk(
     db: Session = Depends(get_db),
     current_user: dict = Depends(JWTBearer())
 ):
-    # Sirf Admin delete kar sakta hai
     check_role(current_user, ["Admin"])
     result = risk_logic.delete_risk(db, risk_id)
     if not result:
-        raise HTTPException(status_code=404, detail="Risk nahi mila")
+        raise HTTPException(status_code=404, detail="Risk not found")
     return result

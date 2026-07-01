@@ -5,3 +5,13 @@ pydantic
 python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
+
+# New AI packages
+langchain
+langchain-openai
+langchain-community
+langgraph
+openai
+mcp
+chromadb                  
+sentence-transformers     

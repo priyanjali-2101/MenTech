@@ -8,7 +8,7 @@ class Activity(Base):
     __tablename__ = "activities"
 
     id          = Column(Integer, primary_key=True, index=True)
-    action      = Column(String(255), nullable=False)   # Kya hua - "Risk created", "Status changed"
+    action      = Column(String(255), nullable=False)   
     risk_id     = Column(Integer, ForeignKey("risks.id"), nullable=False)
     done_by     = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at  = Column(DateTime, default=func.now())

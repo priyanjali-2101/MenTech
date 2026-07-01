@@ -2,7 +2,7 @@ from fastapi import Request, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 
-SECRET_KEY = "your-secret-key-keep-it-safe"
+SECRET_KEY = "mysecretkey123"
 ALGORITHM = "HS256"
 
 
@@ -13,12 +13,12 @@ def decode_token(token: str):
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expired hai, dobara login karo"
+            detail="Token expired, please login again"
         )
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token hai"
+            detail="Invalid token"
         )
 
 
@@ -30,5 +30,5 @@ class JWTBearer(HTTPBearer):
             return payload
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token nahi mila"
+            detail="Token not found"
         )
