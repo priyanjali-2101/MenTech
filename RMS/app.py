@@ -173,7 +173,13 @@ def risks_page():
     with tab1:
         st.subheader("All Risks")
 
-        risks = api_call("GET", "/risks/")
+        risks      = api_call("GET", "/risks/")
+        users_list = api_call("GET", "/users/") if st.session_state.user_role == "Admin" else []
+
+        # Build user lookup: id -> name  (for displaying assigned_to)
+        user_id_to_name = {}
+        if isinstance(users_list, list):
+            user_id_to_name = {u["id"]: u["name"] for u in users_list}
 
         if isinstance(risks, list) and risks:
             for risk in risks:
@@ -196,27 +202,25 @@ def risks_page():
 
                     with col2:
                         st.write(f"**Due Date:** {risk.get('due_date', 'N/A')}")
-                        st.write(f"**Assigned To:** {risk.get('assigned_to', 'Unassigned')}")
+                        assigned_id   = risk.get("assigned_to")
+                        assigned_name = user_id_to_name.get(assigned_id, "Unassigned") if assigned_id else "Unassigned"
+                        st.write(f"**Assigned To:** {assigned_name}")
                         st.write(f"**Created By:** {risk.get('created_by', 'N/A')}")
 
                     st.write(f"**Description:** {risk.get('description', 'N/A')}")
                     st.write(f"**Mitigation:** {risk.get('mitigation', 'N/A')}")
 
-                    # Update Status
                     st.divider()
+
+                    # ── Row 1: Status update + Delete ──────────────────────
                     col_a, col_b, col_c = st.columns(3)
 
                     with col_a:
-                        # new_status = st.selectbox(
-                        #     "Update Status",
-                        #     ["Open", "Assigned", "In Progress", "Resolved", "Closed"],
-                        #     key=f"status_{risk['id']}"
-                        # )
                         status_options = ["Open", "Assigned", "In Progress", "Resolved", "Closed"]
                         new_status = st.selectbox(
                             "Update Status",
                             status_options,
-                            index=status_options.index(risk['status']) if risk['status'] in status_options else 0,
+                            index=status_options.index(risk["status"]) if risk["status"] in status_options else 0,
                             key=f"status_{risk['id']}"
                         )
 
@@ -235,6 +239,46 @@ def risks_page():
                                 result = api_call("DELETE", f"/risks/{risk['id']}")
                                 st.success("Risk deleted!")
                                 st.rerun()
+
+                    # ── Row 2: Manual Assign (Admin only) ──────────────────
+                    if st.session_state.user_role == "Admin" and isinstance(users_list, list):
+                        st.divider()
+
+                        user_options = {"-- Unassigned --": None}
+                        user_options.update({u["name"]: u["id"] for u in users_list})
+                        names = list(user_options.keys())
+
+                        # Pre-select current assigned user in dropdown
+                        current_name = user_id_to_name.get(assigned_id, "-- Unassigned --") if assigned_id else "-- Unassigned --"
+                        default_idx  = names.index(current_name) if current_name in names else 0
+
+                        col_d, col_e = st.columns([3, 1])
+
+                        with col_d:
+                            selected_name = st.selectbox(
+                                "👤 Assign To",
+                                names,
+                                index=default_idx,
+                                key=f"assign_{risk['id']}"
+                            )
+
+                        with col_e:
+                            st.write("")  # spacing
+                            st.write("")  # spacing
+                            if st.button("Assign", key=f"assign_btn_{risk['id']}"):
+                                selected_id = user_options[selected_name]
+                                if selected_id is not None:
+                                    res = api_call("PUT", f"/risks/{risk['id']}", {
+                                        "assigned_to": selected_id,
+                                        "status"     : "Assigned"
+                                    })
+                                    if "id" in res:
+                                        st.success(f"✅ Risk assigned to {selected_name}!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to assign risk!")
+                                else:
+                                    st.warning("Please select a user to assign!")
         else:
             st.info("No risks found!")
 
@@ -248,8 +292,8 @@ def risks_page():
         category    = st.selectbox("Category", [
             "Security", "Infrastructure", "Bug", "Performance", "Maintenance", "Data Privacy"
         ])
-        due_date    = st.date_input("Due Date")
-        mitigation  = st.text_area("Mitigation Plan")
+        due_date   = st.date_input("Due Date")
+        mitigation = st.text_area("Mitigation Plan")
 
         if st.button("Create Risk", use_container_width=True):
             if title and description:
@@ -275,9 +319,9 @@ def risks_page():
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            search   = st.text_input("Search by keyword")
+            search     = st.text_input("Search by keyword")
         with col2:
-            f_status = st.selectbox("Filter by Status", ["All", "Open", "Assigned", "In Progress", "Resolved", "Closed"])
+            f_status   = st.selectbox("Filter by Status",   ["All", "Open", "Assigned", "In Progress", "Resolved", "Closed"])
         with col3:
             f_priority = st.selectbox("Filter by Priority", ["All", "Low", "Medium", "High", "Critical"])
 
@@ -341,8 +385,8 @@ def ai_page():
     # Tab 2 — Mitigation
     with tab2:
         st.subheader("🛡️ Mitigation Plan Generator")
-        title       = st.text_input("Risk Title", key="mit_title")
-        description = st.text_area("Description", key="mit_desc")
+        title       = st.text_input("Risk Title",  key="mit_title")
+        description = st.text_area("Description",  key="mit_desc")
         priority    = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
 
         if st.button("Generate Plan", use_container_width=True):
@@ -366,31 +410,20 @@ def ai_page():
         if "messages" not in st.session_state:
             st.session_state.messages = []
 
-        # Show messages
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
 
-        # Chat input
         question = st.chat_input("Ask about risks...")
 
         if question:
-            st.session_state.messages.append({
-                "role"   : "user",
-                "content": question
-            })
+            st.session_state.messages.append({"role": "user", "content": question})
 
             with st.spinner("AI thinking..."):
-                result = api_call("POST", "/ai/chat", {
-                    "question": question
-                })
+                result = api_call("POST", "/ai/chat", {"question": question})
 
             answer = result.get("answer", "Sorry, could not get answer!")
-
-            st.session_state.messages.append({
-                "role"   : "assistant",
-                "content": answer
-            })
+            st.session_state.messages.append({"role": "assistant", "content": answer})
             st.rerun()
 
     # Tab 4 — Summary
@@ -409,9 +442,9 @@ def ai_page():
         st.subheader("⚡ Auto Workflow")
         st.info("AI will automatically analyze and assign the risk!")
 
-        risk_id     = st.number_input("Risk ID", min_value=1, step=1)
-        title       = st.text_input("Risk Title", key="wf_title")
-        description = st.text_area("Description", key="wf_desc")
+        risk_id     = st.number_input("Risk ID",    min_value=1, step=1)
+        title       = st.text_input("Risk Title",   key="wf_title")
+        description = st.text_area("Description",   key="wf_desc")
 
         if st.button("Run Workflow", use_container_width=True):
             if title and description:
@@ -425,8 +458,8 @@ def ai_page():
                     st.success(result["message"])
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.metric("Priority", result.get("priority"))
-                        st.metric("Status", result.get("status"))
+                        st.metric("Priority",    result.get("priority"))
+                        st.metric("Status",      result.get("status"))
                     with col2:
                         st.metric("Assigned To", result.get("assigned_to"))
                         st.write(f"**Mitigation:** {result.get('mitigation')}")
@@ -502,7 +535,6 @@ def main():
         else:
             register_page()
     else:
-        # Sidebar
         with st.sidebar:
             st.title("🛡️ RMS")
             st.write(f"👤 **{st.session_state.user_name}**")
@@ -524,7 +556,6 @@ def main():
                 st.session_state.user_role = None
                 st.rerun()
 
-        # Pages
         if page == "📊 Dashboard":
             dashboard_page()
         elif page == "⚠️ Risks":
@@ -540,5 +571,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-    #streamlit run app.py
+    # streamlit run app.py
